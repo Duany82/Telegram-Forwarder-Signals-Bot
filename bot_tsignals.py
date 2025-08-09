@@ -6,7 +6,6 @@ from telethon.sessions import StringSession
 from telethon.tl.types import MessageService
 import os
 import re
-import socks
 
 # --- Configuración de Credenciales ---
 api_id = os.environ.get('API_ID')
@@ -47,8 +46,7 @@ if not session_string:
 client = TelegramClient(
     StringSession(session_string),
     api_id,
-    api_hash,
-    proxy=(socks.HTTP, 'proxy.server', 3128)
+    api_hash
 )
 
 def procesar_texto(texto_original):
