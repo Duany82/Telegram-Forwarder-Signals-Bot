@@ -1,0 +1,14 @@
+# Archivos de sesión de Telethon
+*.session
+*.session-journal
+
+# Archivo de variables de entorno
+.env
+
+# Archivos de control de script
+.initial_sync_complete
+pinned_message.id
+
+# Archivos de cache de Python
+__pycache__/
+*.pyc
