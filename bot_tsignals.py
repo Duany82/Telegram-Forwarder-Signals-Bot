@@ -18,9 +18,10 @@ destino_str = os.environ.get('DESTINO')
 
 # --- Configuración de Lógica de Mensajes ---
 AVISO_PHRASE = "Aviso de Responsabilidad"
-PINNED_ID_FILE = 'pinned_message.id' # Archivo para guardar el ID del mensaje fijado
 
 # --- Variables Globales ---
+# El ID del mensaje fijado se manejará en memoria.
+# Si el bot se reinicia, lo buscará o creará de nuevo.
 pinned_message_info = {'id': None}
 
 # --- Validación y Conversión de IDs ---
@@ -35,9 +36,6 @@ def convertir_ids(cadena_ids):
 
 canales_origen = convertir_ids(canales_origen_str)
 destino = int(destino_str) if destino_str and destino_str.lstrip('-').isdigit() else None
-
-# --- Archivo de Control de Sincronización ---
-sync_complete_file = '.initial_sync_complete'
 
 # --- Lógica del Bot ---
 if not session_string:
@@ -88,8 +86,18 @@ async def manejar_aviso_responsabilidad(message):
     global pinned_message_info
     texto_modificado = procesar_texto(message.text)
 
+    # Si no conocemos el ID, intentamos buscarlo entre los mensajes fijados del canal
     if pinned_message_info['id'] is None:
-        print(f"Creando nuevo mensaje de '{AVISO_PHRASE}'...")
+        print("No se conoce el ID del mensaje de aviso. Buscando en el canal...")
+        async for msg in client.iter_messages(destino, limit=100): # Busca en los últimos 100 mensajes
+             if msg.pinned:
+                 if AVISO_PHRASE in msg.text:
+                     pinned_message_info['id'] = msg.id
+                     print(f"Mensaje de aviso encontrado y cargado. ID: {pinned_message_info['id']}")
+                     break
+
+    if pinned_message_info['id'] is None:
+        print(f"No se encontró mensaje de aviso existente. Creando uno nuevo...")
         sent_message = await client.send_message(
             destino,
             message=texto_modificado,
@@ -98,11 +106,10 @@ async def manejar_aviso_responsabilidad(message):
         )
         await client.pin_message(destino, sent_message.id)
         pinned_message_info['id'] = sent_message.id
-        with open(PINNED_ID_FILE, 'w') as f:
-            f.write(str(pinned_message_info['id']))
-        print(f"Nuevo mensaje de aviso CREADO, FIJADO y GUARDADO con ID: {pinned_message_info['id']}")
+        print(f"Nuevo mensaje de aviso CREADO y FIJADO con ID: {pinned_message_info['id']}")
     else:
         try:
+            # Comprobamos si el texto ha cambiado antes de editar
             old_message = await client.get_messages(destino, ids=pinned_message_info['id'])
             if old_message and old_message.text == texto_modificado:
                 print(f"Aviso de Responsabilidad sin cambios. No se necesita editar.")
@@ -121,8 +128,6 @@ async def manejar_aviso_responsabilidad(message):
             print(f"Error al editar el mensaje fijado (ID: {pinned_message_info['id']}): {e}")
             print("El mensaje pudo haber sido borrado. Se creará uno nuevo la próxima vez.")
             pinned_message_info['id'] = None
-            if os.path.exists(PINNED_ID_FILE):
-                os.remove(PINNED_ID_FILE)
 
 @client.on(events.NewMessage(chats=canales_origen))
 async def manejador_principal(event):
@@ -146,26 +151,19 @@ Esto puede tardar...""")
             else:
                 await reenviar_mensaje_normal(message)
         print(f"Canal {canal} sincronizado.")
-    with open(sync_complete_file, 'w') as f:
-        f.write('completed')
     print("--- SINCRONIZACIÓN INICIAL COMPLETADA ---")
 
 async def main():
-    global pinned_message_info
     await client.start()
     print("\nSesión iniciada con éxito.")
 
-    if os.path.exists(PINNED_ID_FILE):
-        with open(PINNED_ID_FILE, 'r') as f:
-            content = f.read().strip()
-            if content.isdigit():
-                pinned_message_info['id'] = int(content)
-                print(f"ID del mensaje fijado cargado desde archivo: {pinned_message_info['id']}")
+    # Comprueba la variable de entorno para decidir si ejecutar la sincronización
+    perform_sync = os.environ.get('PERFORM_INITIAL_SYNC', 'false').lower() == 'true'
 
-    if not os.path.exists(sync_complete_file):
+    if perform_sync:
         await sincronizacion_inicial()
     else:
-        print("El historial ya ha sido sincronizado anteriormente.")
+        print("El historial ya ha sido sincronizado anteriormente (PERFORM_INITIAL_SYNC=false).")
 
     if not canales_origen:
         print("************************************************************")
