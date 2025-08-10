@@ -20,8 +20,6 @@ destino_str = os.environ.get('DESTINO')
 AVISO_PHRASE = "Aviso de Responsabilidad"
 
 # --- Variables Globales ---
-# El ID del mensaje fijado se manejará en memoria.
-# Si el bot se reinicia, lo buscará o creará de nuevo.
 pinned_message_info = {'id': None}
 
 # --- Validación y Conversión de IDs ---
@@ -49,6 +47,8 @@ client = TelegramClient(
 
 def procesar_texto(texto_original):
     """Aplica todos los reemplazos y eliminaciones de texto."""
+    if not texto_original:
+        return ""
     reemplazos = {
         'SersanSistemas': 'ASniper',
         'Apolo': ''
@@ -61,35 +61,31 @@ def procesar_texto(texto_original):
     return texto_modificado
 
 async def reenviar_mensaje_normal(message):
-    """Procesa y reenvía un mensaje estándar."""
-    if not message.text:
-        await client.send_message(destino, message)
-        print(f"Mensaje copiado (sin texto) desde {message.chat_id} hacia {destino}")
-        return
+    """Copia el contenido de un mensaje y lo publica como el canal de destino."""
+    texto_original = message.text or ""
+    texto_modificado = procesar_texto(texto_original)
 
-    texto_modificado = procesar_texto(message.text)
+    await client.send_message(
+        destino,
+        message=texto_modificado,
+        file=message.media,
+        link_preview=False,
+        send_as=destino
+    )
 
-    if texto_modificado == message.text:
-        await client.send_message(destino, message)
-        print(f"Mensaje copiado (sin reemplazo) desde {message.chat_id} hacia {destino}")
+    if texto_original != texto_modificado:
+        print(f"Mensaje procesado (como canal) desde {message.chat_id} hacia {destino}")
     else:
-        await client.send_message(
-            destino,
-            message=texto_modificado,
-            file=message.media,
-            link_preview=False
-        )
-        print(f"Mensaje procesado (con reemplazo) desde {message.chat_id} hacia {destino}")
+        print(f"Mensaje copiado (como canal) desde {message.chat_id} hacia {destino}")
 
 async def manejar_aviso_responsabilidad(message):
-    """Maneja la lógica del mensaje especial 'Aviso de Responsabilidad'."""
+    """Maneja la lógica del mensaje especial 'Aviso de Responsabilidad', publicando como el canal."""
     global pinned_message_info
     texto_modificado = procesar_texto(message.text)
 
-    # Si no conocemos el ID, intentamos buscarlo entre los mensajes fijados del canal
     if pinned_message_info['id'] is None:
         print("No se conoce el ID del mensaje de aviso. Buscando en el canal...")
-        async for msg in client.iter_messages(destino, limit=100): # Busca en los últimos 100 mensajes
+        async for msg in client.iter_messages(destino, limit=100):
              if msg.pinned:
                  if AVISO_PHRASE in msg.text:
                      pinned_message_info['id'] = msg.id
@@ -102,14 +98,14 @@ async def manejar_aviso_responsabilidad(message):
             destino,
             message=texto_modificado,
             file=message.media,
-            link_preview=False
+            link_preview=False,
+            send_as=destino
         )
         await client.pin_message(destino, sent_message.id)
         pinned_message_info['id'] = sent_message.id
         print(f"Nuevo mensaje de aviso CREADO y FIJADO con ID: {pinned_message_info['id']}")
     else:
         try:
-            # Comprobamos si el texto ha cambiado antes de editar
             old_message = await client.get_messages(destino, ids=pinned_message_info['id'])
             if old_message and old_message.text == texto_modificado:
                 print(f"Aviso de Responsabilidad sin cambios. No se necesita editar.")
@@ -121,7 +117,8 @@ async def manejar_aviso_responsabilidad(message):
                 pinned_message_info['id'],
                 message=texto_modificado,
                 file=message.media,
-                link_preview=False
+                link_preview=False,
+                send_as=destino
             )
             print("Mensaje de aviso ACTUALIZADO.")
         except Exception as e:
@@ -157,7 +154,6 @@ async def main():
     await client.start()
     print("\nSesión iniciada con éxito.")
 
-    # Comprueba la variable de entorno para decidir si ejecutar la sincronización
     perform_sync = os.environ.get('PERFORM_INITIAL_SYNC', 'false').lower() == 'true'
 
     if perform_sync:
